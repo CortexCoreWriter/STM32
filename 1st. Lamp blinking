@@ -1,0 +1,23 @@
+#include "stm32f1xx.h"
+
+void delay(volatile uint32_t count) {
+    while (count--) {
+        __NOP();
+    }
+}
+
+int main(void) {
+    // Включение тактирования порта GPIOC (предположим, что светодиод подключен к PC13)
+    RCC->APB2ENR |= RCC_APB2ENR_IOPCEN;
+
+    // Настройка PC13 как общего выхода push-pull
+    GPIOC->CRH &= ~GPIO_CRH_CNF13; // Очистка конфигурации
+    GPIOC->CRH |= GPIO_CRH_MODE13_0; // Выход с максимальной скоростью 10 МГц
+
+    while (1) {
+        GPIOC->BSRR = GPIO_BSRR_BR13;
+        delay(500000);
+        GPIOC->BSRR = GPIO_BSRR_BS13;
+        delay(500000);
+    }
+}
