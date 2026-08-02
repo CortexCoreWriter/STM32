@@ -1,0 +1,72 @@
+#include "FreeRTOS.h"
+#include "task.h"
+#include "stm32f4xx.h"
+#include "lwip.h"         // Для Ethernet (использование lwIP)
+#include "can.h"          // Для CAN
+#include <stdio.h>
+#include <string.h>
+
+// Объявление задач
+void vEthernetTask(void *pvParameters);
+void vCANTask(void *pvParameters);
+void vSensorTask(void *pvParameters);
+void vControlTask(void *pvParameters);
+
+// Инициализация периферии
+void System_Init(void) {
+    // Инициализация тактирования, GPIO, Ethernet, CAN, FreeRTOS
+    // Вызовы инициализации для Ethernet, CAN, GPIO, и запуск FreeRTOS
+}
+
+// Основная функция
+int main(void) {
+    System_Init();
+
+    // Создание задач
+    xTaskCreate(vEthernetTask, "Ethernet", 512, NULL, 2, NULL);
+    xTaskCreate(vCANTask, "CAN", 256, NULL, 2, NULL);
+    xTaskCreate(vSensorTask, "Sensor", 256, NULL, 1, NULL);
+    xTaskCreate(vControlTask, "Control", 256, NULL, 1, NULL);
+
+    // Запуск планировщика
+    vTaskStartScheduler();
+
+    while (1) {
+        // Не должно сюда попасть
+    }
+}
+
+// Реализация задач (пример)
+
+void vEthernetTask(void *pvParameters) {
+    for (;;) {
+        // Обработка Ethernet, отправка данных на сервер
+        // lwIP API для TCP/UDP
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void vCANTask(void *pvParameters) {
+    for (;;) {
+        // Обработка сообщений CAN
+        // Отправка и прием
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+void vSensorTask(void *pvParameters) {
+    for (;;) {
+        // Считывание датчиков
+        float temperature = Read_TemperatureSensor();
+        float pressure = Read_PressureSensor();
+        // Передача данных в очередь или глобальные переменные
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+void vControlTask(void *pvParameters) {
+    for (;;) {
+        // Обработка команд, управление светодиодами
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
