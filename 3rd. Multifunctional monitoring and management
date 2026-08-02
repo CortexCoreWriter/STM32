@@ -1,0 +1,128 @@
+#include "stm32f4xx.h"
+#include <string.h>
+#include <stdio.h>
+
+#define LED_GREEN_PIN 0  // PA0
+#define LED_YELLOW_PIN 1 // PA1
+#define LED_RED_PIN 2    // PA2
+#define LED_BLUE_PIN 3   // PA3
+
+volatile char uart_rx_buffer[100];
+volatile uint8_t uart_rx_index = 0;
+volatile uint8_t uart_data_ready = 0;
+
+// Инициализация GPIO для светодиодов
+void GPIO_Init_LEDs(void) {
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+    GPIOA->MODER &= ~(
+        (0x3 << (LED_GREEN_PIN * 2)) |
+        (0x3 << (LED_YELLOW_PIN * 2)) |
+        (0x3 << (LED_RED_PIN * 2)) |
+        (0x3 << (LED_BLUE_PIN * 2))
+    );
+
+    GPIOA->MODER |=
+        (0x1 << (LED_GREEN_PIN * 2)) |
+        (0x1 << (LED_YELLOW_PIN * 2)) |
+        (0x1 << (LED_RED_PIN * 2)) |
+        (0x1 << (LED_BLUE_PIN * 2));
+}
+
+// Инициализация ADC для температуры
+void ADC_Init(void) {
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+    RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+
+    // PA4 как аналоговый вход (например, подключен к датчику температуры)
+    GPIOA->MODER |= (0x3 << (4 * 2));
+
+    ADC1->SQR3 = 4; // Канал 4 (PA4)
+    ADC1->CR2 |= ADC_CR2_ADON; // Включение ADC
+}
+
+// Инициализация UART2 для обмена данными
+void USART2_Init(void) {
+    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+    // PA2, PA3 для USART2
+    GPIOA->MODER &= ~((0x3 << (2 * 2)) | (0x3 << (3 * 2)));
+    GPIOA->MODER |= (0x2 << (2 * 2)) | (0x2 << (3 * 2)); // Alternate function
+    GPIOA->AFR[0] |= (7 << (2 * 4)) | (7 << (3 * 4)); // AF7 для USART2
+
+    USART2->BRR = 0x8B; // 115200 baud @ 16 MHz
+    USART2->CR1 |= USART_CR1_TE | USART_CR1_RE | USART_CR1_UE; // Enable TX, RX, USART
+    USART2->CR1 |= USART_CR1_RXNEIE; // Enable RX interrupt
+
+    // NVIC настройка
+    NVIC_SetPriority(USART2_IRQn, 1);
+    NVIC_EnableIRQ(USART2_IRQn);
+}
+
+// Обработчик прерывания UART
+void USART2_IRQHandler(void) {
+    if (USART2->SR & USART_SR_RXNE) {
+        char data = USART2->DR;
+        if (uart_rx_index < sizeof(uart_rx_buffer) - 1) {
+            uart_rx_buffer[uart_rx_index++] = data;
+            if (data == '\n') {
+                uart_rx_buffer[uart_rx_index] = '\0';
+                uart_data_ready = 1;
+                uart_rx_index = 0;
+            }
+        }
+    }
+}
+
+// Чтение температуры
+float Read_Temperature(void) {
+    ADC1->CR2 |= ADC_CR2_ADON; // Старт преобразования
+    while (!(ADC1->SR & ADC_SR_EOC));
+    uint16_t adc_value = ADC1->DR;
+    float voltage = (adc_value / 4095.0f) * 3.3f;
+    float temperature = (voltage - 0.5f) * 100; // Зависимость для LM35
+    return temperature;
+}
+
+// Отправка строки по UART
+void UART_SendString(const char *str) {
+    while (*str) {
+        while (!(USART2->SR & USART_SR_TXE));
+        USART2->DR = *str++;
+    }
+}
+
+// Основной цикл
+int main(void) {
+    GPIO_Init_LEDs();
+    ADC_Init();
+    USART2_Init();
+
+    char buffer[128];
+
+    while (1) {
+        if (uart_data_ready) {
+            uart_data_ready = 0;
+
+            // Обработка команд
+            if (strstr((char*)uart_rx_buffer, "LED ON GREEN")) {
+                GPIOA->BSRR = (1 << LED_GREEN_PIN);
+            } else if (strstr((char*)uart_rx_buffer, "LED OFF GREEN")) {
+                GPIOA->BSRR = (1 << (LED_GREEN_PIN + 16));
+            } else if (strstr((char*)uart_rx_buffer, "READ TEMP")) {
+                float temp = Read_Temperature();
+                snprintf(buffer, sizeof(buffer), "Temperature: %.2f C\n", temp);
+                UART_SendString(buffer);
+            }
+            // Можно добавить управление другими светодиодами и команды
+        }
+
+        // Периодическая отправка данных
+        float temp = Read_Temperature();
+        snprintf(buffer, sizeof(buffer), "Temp: %.2f C\n", temp);
+        UART_SendString(buffer);
+
+        for (volatile int i = 0; i < 1000000; i++); // Задержка
+    }
+}
